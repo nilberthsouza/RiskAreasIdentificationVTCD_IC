@@ -1,4 +1,4 @@
-%--------- PROGRAMA PRINCIPAL DE LOCALIZAÇAO DE FALTAS EM REDES RADIAIS
+%--------- PROGRAMA PRINCIPAL DE LOCALIZAÇÃO DE FALTAS EM REDES RADIAIS
 %--------- UTILIZANDO ALGORITMO CLONAL
 clear; clc;
 %------ leitura de dados
@@ -68,7 +68,20 @@ Melhor_Anticorpo = Populacao_Ordenada(1, :);
 [Melhor_Vtrif, Melhor_VFT, Melhor_VFFT, Melhor_VFF] = CurtoCircuito(caso,Melhor_Anticorpo,pu);
 [Tens_Calc] = preencheMedidores(Bar_Med,Melhor_Anticorpo(4),Melhor_Vtrif,Melhor_VFT,Melhor_VFFT,Melhor_VFF);
 
-% Exibir a configuração de curto mais próxima da falta original
-disp('A configuração de curto mais próxima da falta original:');
-disp('BarDe   BarPara   Zdistancia   Tipo_curto   Zdefeito');
-disp(Melhor_Anticorpo);
+% Criar a matriz de vtcd, com 1 indicando a ocorrência e 0 caso contrário
+Matriz_Vtcd = zeros(N_med, 1); % Inicializa a matriz de vtcd com zeros
+
+% Verifica cada barra para detectar vtcd
+for j = 1:N_med
+    % Tensões da barra j
+    tensoes_barra = Tens_Calc(j, :);
+    
+    % Verifica se qualquer fase está entre 0.1-0.9 ou 1.1-1.8
+    if any((tensoes_barra >= 0.1 & tensoes_barra <= 0.9) | (tensoes_barra >= 1.1 & tensoes_barra <= 1.8))
+        Matriz_Vtcd(j) = 1; % Marca 1 se houver vtcd
+    end
+end
+
+% Exibir a matriz de vtcd
+disp('Matriz de vtcd para cada barra (1 = vtcd detectado, 0 = nenhum vtcd):');
+disp(Matriz_Vtcd);
