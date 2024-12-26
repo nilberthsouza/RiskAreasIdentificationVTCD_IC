@@ -7,6 +7,10 @@ caso = 'caso33barras';           %% caso33barras   casoStevenson81  casoStevenso
 pu=2; % 1= sim esta  2= nao esta em p.u.
 [rede, barras, nomes, linhas, Geradores, Trafos] = feval(caso); 
 
+% Matriz Distancia
+ load('Matriz_dist1_33_barras.m');
+ load('Matriz_dist2_33_barras.m');
+
 %------ leitura da falta real
 BarDe=23; %=input(' Barra "De"');
 BarPara=24; %input(' Barra "Para" ');
@@ -68,15 +72,211 @@ for ciclo=1:Num_Ciclos
         while j == i
             j = randi([1, Num_Anticorpos]);
         end
-        
+        disp("iteração");
+        disp(i);
+      
+  
+
+
         % Vetor de relação mútua
         Mutual_Vector = (Populacao_Ant(i, :) + Populacao_Ant(j, :)) / 2;
-        BF1 = randi([1, 2]);
-        BF2 = randi([1, 2]);
+
+        % BF é 1 ou 2 aleatorio
+        BF1 = randsample([1, 2], 1);
+        BF2 = randsample([1, 2], 1);
+
         
         % Atualização de Distância e Impedância de Defeito
         X_new_i = Populacao_Ant(i, :);
         X_new_j = Populacao_Ant(j, :);
+
+
+        Barra_De_1 = X_new_i(1);
+        Barra_De_2 = X_new_j(1);
+
+        Barra_Para_1 = X_new_i(2);
+        Barra_Para_2 = X_new_j(2);
+
+        if(X_new_i(1) == X_new_j(1) || X_new_i(2) == X_new_j(2))
+
+            Distancia=1;
+
+        else
+
+            % Acessar a coluna correspondente ao valor de X_new_i
+            coluna_desejada_De = Matriz_dist1_33_barras(:, Barra_De_1);
+            % Acessar a coluna correspondente ao valor de Barra_Para_1
+            coluna_desejada_Para = Matriz_dist1_33_barras(:, Barra_Para_1);
+    
+            % Procurar a linha onde o valor na coluna é igual a Barra_de_2
+            linha_encontrada_De = find(coluna_desejada_De == Barra_De_2);
+            % Procurar a linha onde o valor na coluna é igual a Barra_de_2
+            linha_encontrada_Para = find(coluna_desejada_Para == Barra_Para_2);
+            
+            % Procurar a coluna correspondente ao valor de Barra_de_1 em Matriz_dist2_33_barras
+            coluna_encontrada_De = Matriz_dist2_33_barras(:, Barra_De_1);
+            % Procurar a coluna correspondente ao valor de Barra_Para_1 em Matriz_dist2_33_barras
+            coluna_encontrada_Para = Matriz_dist2_33_barras(:, Barra_Para_1);
+    
+            % Acessar o valor na linha linha_encontrada e na coluna coluna_encontrada
+            distancia_De = coluna_encontrada_De(linha_encontrada_De);
+            % Acessar o valor na linha linha_encontrada e na coluna coluna_encontrada
+            distancia_Para = coluna_encontrada_Para(linha_encontrada_Para);
+    
+            % Pega a média das distancias
+            Distancia = double(round((distancia_De + distancia_Para)/2));
+
+        
+        end
+
+
+        Coluna_com_distancias = Matriz_dist2_33_barras(:,Barra_De_1);
+        disp("Coluna_com_distancias");
+        disp(Coluna_com_distancias);
+        disp("Distancia");
+        disp(Distancia);
+
+
+        Barras_metade_do_caminho=find(Coluna_com_distancias==Distancia);
+
+        if(length(Barras_metade_do_caminho) >1)
+            Barra_metade_do_caminho =Barras_metade_do_caminho(randi([1, length(Barras_metade_do_caminho)]));
+        else
+            Barra_metade_do_caminho = Barras_metade_do_caminho;
+        end
+    
+
+        % Procurar o valor de Barra_metade_do_caminho na coluna 1 da matriz 'linhas'
+        linha_encontrada_mutual = find(linhas(:, 1) == Barra_metade_do_caminho, 1);
+
+
+        if ~isempty(linha_encontrada_mutual)
+            % Se encontrado na coluna 1
+            Mutual_Vector(1) = Barra_metade_do_caminho; % Colocar em posição 1
+            Mutual_Vector(2) = linhas(linha_encontrada_mutual, 2); % Valor da coluna 2 na posição 2
+        else
+            % Procurar o valor de Barra_metade_do_caminho na coluna 2
+            linha_encontrada_mutual = find(linhas(:, 2) == Barra_metade_do_caminho, 1);
+
+        if ~isempty(linha_encontrada_mutual)
+            % Se encontrado na coluna 2
+            Mutual_Vector(2) = Barra_metade_do_caminho; % Colocar em posição 2
+            Mutual_Vector(1) = linhas(linha_encontrada_mutual, 1); % Valor da coluna 1 na posição 1
+        end
+        end
+        
+  
+
+       %X_Best - Mutual_Vector - Para a barra
+
+       X_Best = best_solution(1,:);
+
+       Distancia_XBest_Mutual = calcula_distancia(X_Best, Mutual_Vector,Matriz_dist1_33_barras, Matriz_dist2_33_barras);
+
+       if ~isscalar(Distancia_XBest_Mutual)
+           Distancia_XBest_Mutual = 1;
+       end
+
+       % (Xbest - Mutual_Vector)*BF1
+       Fator_1 = double(round(rand * Distancia_XBest_Mutual * BF1));
+
+       if(Fator_1==0)
+           Fator_1 = 1;
+       end
+
+       % (Xbest - Mutual_Vector)*BF1
+       Fator_2 = double(round(rand * Distancia_XBest_Mutual * BF2));      
+
+       if(Fator_2 == 0)
+           Fator_2 = 1;
+       end
+
+   
+     
+        % Encontra a barra com distancia Factor 1 de X_new_i e escolhe uma
+        % aleatoriamente
+        Coluna_com_distancias = Matriz_dist2_33_barras(:,X_new_i(1));
+        
+        disp("Fator_1");
+        disp(Fator_1);
+        disp(isscalar(Fator_1));
+
+        Barras_com_distancia_de_Xi=find(Coluna_com_distancias==Fator_1);
+        disp("Barras com distancia de xi");
+        disp(Barras_com_distancia_de_Xi);
+
+          if isempty(Barras_com_distancia_de_Xi)
+            Barras_com_distancia_de_Xi = max(Coluna_com_distancias);
+          end
+
+          
+
+
+        if(length(Barras_com_distancia_de_Xi) >1)
+            Barra_com_distancia_de_Xi =Barras_com_distancia_de_Xi(randi([1, length(Barras_com_distancia_de_Xi)]));
+        else
+            Barra_com_distancia_de_Xi = Barras_com_distancia_de_Xi;
+        end
+        
+        % Encontra a barra com distancia Factor 2 de X_new_j e escolhe uma
+        % aleatoriamente
+        Coluna_com_distancias = Matriz_dist2_33_barras(:,X_new_j(1));
+        
+        Barras_com_distancia_de_Xj=find(Coluna_com_distancias==Fator_2);
+
+        if isempty(Barras_com_distancia_de_Xj)
+            Barras_com_distancia_de_Xj = max(Coluna_com_distancias);
+        end
+
+        if(length(Barras_com_distancia_de_Xj) >1)
+            Barra_com_distancia_de_Xj =Barras_com_distancia_de_Xj(randi([1, length(Barras_com_distancia_de_Xj)]));
+        else
+            Barra_com_distancia_de_Xj = Barras_com_distancia_de_Xj;
+        end
+
+       % Encontra a barra inicial ou final em linhas para definir um trecho
+       % que existe 
+
+        % Procurar o valor de Barra_com_distancia_de_Xi na coluna 1 da matriz 'linhas'
+        linha_encontrada_mutual = find(linhas(:, 1) == Barra_com_distancia_de_Xi, 1);
+
+        if ~isempty(linha_encontrada_mutual)
+            % Se encontrado na coluna 1
+            X_new_i(1) = Barra_com_distancia_de_Xi; % Colocar em posição 1
+            X_new_i(2) = linhas(linha_encontrada_mutual, 2); % Valor da coluna 2 na posição 2
+        else
+            % Procurar o valor de Barra_metade_do_caminho na coluna 2
+            linha_encontrada_mutual = find(linhas(:, 2) == Barra_com_distancia_de_Xi, 1);
+
+        if ~isempty(linha_encontrada_mutual)
+            % Se encontrado na coluna 2
+            X_new_i(2) = Barra_com_distancia_de_Xi; % Colocar em posição 2
+            X_new_i(1) = linhas(linha_encontrada_mutual, 1); % Valor da coluna 1 na posição 1
+        end
+        end
+
+       % Procurar o valor de Barra_com_distancia_de_Xj na coluna 1 da matriz 'linhas'
+        linha_encontrada_mutual = find(linhas(:, 1) == Barra_com_distancia_de_Xj, 1);
+
+        if ~isempty(linha_encontrada_mutual)
+            % Se encontrado na coluna 1
+            X_new_j(1) = Barra_com_distancia_de_Xj; % Colocar em posição 1
+            X_new_j(2) = linhas(linha_encontrada_mutual, 2); % Valor da coluna 2 na posição 2
+        else
+            % Procurar o valor de Barra_metade_do_caminho na coluna 2
+            linha_encontrada_mutual = find(linhas(:, 2) == Barra_com_distancia_de_Xj, 1);
+
+        if ~isempty(linha_encontrada_mutual)
+            % Se encontrado na coluna 2
+            X_new_j(2) = Barra_com_distancia_de_Xj; % Colocar em posição 2
+            X_new_j(1) = linhas(linha_encontrada_mutual, 1); % Valor da coluna 1 na posição 1
+        end
+        end
+
+
+        clear linha_encontrada_mutual;
+
+        % Impedância e Distancia
 
         X_new_i(3) = X_new_i(3) + rand*(best_solution(1,3) - Mutual_Vector(3)) * BF1; 
         if(X_new_i(3) < 0)
