@@ -1,403 +1,341 @@
-%--------- PROGRAMA PRINCIPAL DE LOCALIZAÇÃO DE FALTAS EM REDES RADIAIS
-%--------- UTILIZANDO ALGORITMO SOS
+%% Programa Principal de Localização de Faltas em Redes Radiais
+% Utilizando o algoritmo SOS (Simulated Organism Search)
+%----------------------------------------------------------------------
 clear; clc;
 
-%------ leitura de dados
-caso = 'caso33barras';           %% caso33barras   casoStevenson81  casoStevenson81Radial   casoSol4    casoUFU   casoieee4livro  casoSubTransDistrib33  casoLivroDistribuicao  casoieee14
-pu=2; % 1= sim esta  2= nao esta em p.u.
-[rede, barras, nomes, linhas, Geradores, Trafos] = feval(caso); 
+%% Leitura dos dados do caso e das matrizes de distância
+caso = 'caso33barras'; % Escolha o caso desejado (ex: 'caso33barras', 'casoStevenson81', etc.)
+pu = 2;  % 1 = valores em p.u. ; 2 = não está em p.u.
+[rede, barras, nomes, linhas, geradores, trafos] = feval(caso);
 
-% Matriz Distancia
- load('Matriz_dist1_33_barras.m');
- load('Matriz_dist2_33_barras.m');
+% Carregar matrizes de distância pré-calculadas
+load("Matriz_Distancias_De.m");  % Distância "de" cada trecho
+load("Matriz_Distancias_Para.m");  % Distância "para" cada trecho
 
-%------ leitura da falta real
-BarDe=23; %=input(' Barra "De"');
-BarPara=24; %input(' Barra "Para" ');
-Zdistancia=7.22;% % porcentual
-Tipo_curto=3;  %1=trifasico   2=FASE-TERRA    3=FASE-FASE-TERRA    4=FASE-FASE
-Zdefeito=9.0; %em p.u.
-Bar_Med = [1; 3; 6]; % Barras com medidores
-N_med=length(Bar_Med);
+%% Definição do curto real (falta real)
+barra_de_real   = 21;    % Barra de origem da falta
+barra_para_real = 22;    % Barra de destino da falta
+porc_dist_real  = 10;   % Posição percentual no trecho, ex: 7.22%
+tipo_curto_real = 3;     % Tipos: 1 = trifásico, 2 = fase-terra, 3 = fase-fase-terra, 4 = fase-fase
+Z_defeito_real  = 15.0;   % Impedância de curto (em p.u. ou unidades do caso)
+barras_medidor  = [1;15;20;24;29;]; % Barras onde há medidores
+num_medidores   = length(barras_medidor);
 
-%------ Faz um curto circuito na falta
-Anticorpo= [BarDe BarPara Zdistancia Tipo_curto Zdefeito];
-[Vtrif,VFT,VFFT,VFF] = CurtoCircuito(caso,Anticorpo,pu);
+% Parâmetros do curto real a ser simulado
+curto_real = [barra_de_real, barra_para_real, porc_dist_real, tipo_curto_real, Z_defeito_real];
 
-%------ Preenche os medidores com o curto real
-[Tens_Med] = preencheMedidores(Bar_Med,Tipo_curto,Vtrif,VFT,VFFT,VFF);
+% Realiza o cálculo do curto real (utilizando funções definidas no caso)
+[V_trif, V_FT, V_FFT, V_FF] = CurtoCircuito(caso, curto_real, pu);
 
-%------ Criar uma população inicial de x curtos
-Num_Anticorpos = 50;  % Define que a população terá x curtos aleatórios
-Populacao_Ant = zeros(Num_Anticorpos, 5); % Armazena os parâmetros dos curtos
-fobj_array = zeros(Num_Anticorpos, 1); % Armazena os valores da função objetivo
+% Preenche os medidores com os tensores do curto real
+tensores_med_real = preencheMedidores(barras_medidor, tipo_curto_real, V_trif, V_FT, V_FFT, V_FF);
 
+%% Criação da População Inicial (Conjunto de Anticorpos)
+num_anticorpos = 50;  % Número de curtos candidatos na população
+populacao = zeros(num_anticorpos, 5);    % Cada linha: [BarDe, BarPara, Zdist, Tipo_curto, Zdefeito]
+fobj_array = zeros(num_anticorpos, 1);     % Vetor com valores da função objetivo para cada candidato
 
-% Gera xx curtos com configurações diferentes
-for i=1:Num_Anticorpos
-    % Geração de parâmetros aleatórios para os curtos
-    poss1 = randi([1 length(linhas(:,1))]);
-    BarDe = linhas(poss1,1); 
-    BarPara = linhas(poss1,2);
-    Zdistancia = rand(1)*100;
-    Tipo_curto = ceil(rand(1)*4); 
+% Gera curtos aleatórios (organismos) para a população inicial
+for i = 1:num_anticorpos
+    % Seleciona aleatoriamente um trecho da rede
+    trecho_idx = randi(size(linhas,1));
+    bar_de = linhas(trecho_idx, 1);
+    bar_para = linhas(trecho_idx, 2);
     
-    if Tipo_curto==2 || Tipo_curto==3
-        Zdefeito = rand(1)*20; 
+    % Parâmetros aleatórios para posição e tipo do curto
+    Z_dist = rand * 100;           % Percentual da distância (0 a 100)
+    tipo_curto = randi([1, 4]);      % Tipo de curto (1 a 4)
+    
+    % Se o curto envolver terra (tipos 2 ou 3), atribui um defeito aleatório
+    if tipo_curto == 2 || tipo_curto == 3
+        Z_defeito = rand * 20;
     else
-        Zdefeito = 0.0; 
+        Z_defeito = 0.0;
     end
     
-    Populacao_Ant(i, :) = [BarDe BarPara Zdistancia Tipo_curto Zdefeito];
+    populacao(i, :) = [bar_de, bar_para, Z_dist, tipo_curto, Z_defeito];
     
-    % Avaliação inicial da função objetivo
-    [Vtrif,VFT,VFFT,VFF] = CurtoCircuito(caso,Populacao_Ant(i,:),pu);
-    [Tens_Calc] = preencheMedidores(Bar_Med,Tipo_curto,Vtrif,VFT,VFFT,VFF); 
-    fobj_array(i) = avaliaFO(Tens_Med,Tens_Calc);
+    % Avalia a função objetivo (diferença entre medidores reais e calculados)
+    [V_trif, V_FT, V_FFT, V_FF] = CurtoCircuito(caso, populacao(i,:), pu);
+    tensores_calc = preencheMedidores(barras_medidor, tipo_curto, V_trif, V_FT, V_FFT, V_FF);
+    fobj_array(i) = avaliaFO(tensores_med_real, tensores_calc);
 end
 
-%------ Início do ciclo SOS
-Num_Ciclos = 20; % Define o número de ciclos
-for ciclo=1:Num_Ciclos
+%% Parâmetros do ciclo SOS
+num_ciclos = 50;  % Número de iterações (ciclos do algoritmo)
 
-    %identificar o melhor solução da população 
-    a = min(fobj_array);
-    a2 = find(fobj_array(:)==a);
-    best_solution = Populacao_Ant(a2,:);
-
-    %------ Fase de Mutualismo
-    for i=1:Num_Anticorpos
-        % Seleção de dois indivíduos
-        j = randi([1, Num_Anticorpos]);
+%% Início dos Ciclos do Algoritmo SOS
+for ciclo = 1:num_ciclos
+    % Identifica o melhor candidato (solução) atual
+    [fobj_best, idx_best] = min(fobj_array);
+    melhor_solucao = populacao(idx_best, :);
+    
+    % Para cada organismo na população, realiza os três processos: Mutualismo, Comensalismo e Parasitismo
+    for i = 1:num_anticorpos
+        
+        %% FASE DE MUTUALISMO
+        % Seleciona um parceiro (organismo j) diferente do i
+        j = randi(num_anticorpos);
         while j == i
-            j = randi([1, Num_Anticorpos]);
+            j = randi(num_anticorpos);
         end
-        disp("iteração");
-        disp(i);
-      
-  
-
-
-        % Vetor de relação mútua
-        Mutual_Vector = (Populacao_Ant(i, :) + Populacao_Ant(j, :)) / 2;
-
-        % BF é 1 ou 2 aleatorio
+        
+        % Cópias dos organismos i e j para atualização
+        org_i = populacao(i, :);
+        org_j = populacao(j, :);
+        
+        % Vetor de efeito mútuo (média dos dois organismos)
+        vetor_mutual = (org_i + org_j) / 2;
+        
+        % Fatores bióticos aleatórios (1 ou 2)
         BF1 = randsample([1, 2], 1);
         BF2 = randsample([1, 2], 1);
-
         
-        % Atualização de Distância e Impedância de Defeito
-        X_new_i = Populacao_Ant(i, :);
-        X_new_j = Populacao_Ant(j, :);
-
-
-        Barra_De_1 = X_new_i(1);
-        Barra_De_2 = X_new_j(1);
-
-        Barra_Para_1 = X_new_i(2);
-        Barra_Para_2 = X_new_j(2);
-
-        if(X_new_i(1) == X_new_j(1) || X_new_i(2) == X_new_j(2))
-
-            Distancia=1;
-
-        else
-
-            % Acessar a coluna correspondente ao valor de X_new_i
-            coluna_desejada_De = Matriz_dist1_33_barras(:, Barra_De_1);
-            % Acessar a coluna correspondente ao valor de Barra_Para_1
-            coluna_desejada_Para = Matriz_dist1_33_barras(:, Barra_Para_1);
-    
-            % Procurar a linha onde o valor na coluna é igual a Barra_de_2
-            linha_encontrada_De = find(coluna_desejada_De == Barra_De_2);
-            % Procurar a linha onde o valor na coluna é igual a Barra_de_2
-            linha_encontrada_Para = find(coluna_desejada_Para == Barra_Para_2);
-            
-            % Procurar a coluna correspondente ao valor de Barra_de_1 em Matriz_dist2_33_barras
-            coluna_encontrada_De = Matriz_dist2_33_barras(:, Barra_De_1);
-            % Procurar a coluna correspondente ao valor de Barra_Para_1 em Matriz_dist2_33_barras
-            coluna_encontrada_Para = Matriz_dist2_33_barras(:, Barra_Para_1);
-    
-            % Acessar o valor na linha linha_encontrada e na coluna coluna_encontrada
-            distancia_De = coluna_encontrada_De(linha_encontrada_De);
-            % Acessar o valor na linha linha_encontrada e na coluna coluna_encontrada
-            distancia_Para = coluna_encontrada_Para(linha_encontrada_Para);
-    
-            % Pega a média das distancias
-            Distancia = double(round((distancia_De + distancia_Para)/2));
-
+        % --- Atualização da posição das barras (trecho) via distância mútua ---
+        % Obter índice do trecho atual de org_i e org_j
+        trecho_i_idx = find(linhas(:,1) == org_i(1) & linhas(:,2) == org_i(2), 1);
+        trecho_j_idx = find(linhas(:,1) == org_j(1) & linhas(:,2) == org_j(2), 1);
         
-        end
+        % Determina a distância (metade do caminho) entre os trechos dos organismos
+        distancia_media = round(Matriz_Distancias_De(trecho_i_idx, trecho_j_idx) * 0.5);
+        
+        % Seleciona um trecho mutual aleatório baseado na distância
+        trecho_mutual_idx = escolheTrecho(Matriz_Distancias_De, trecho_i_idx, distancia_media);
 
-
-        Coluna_com_distancias = Matriz_dist2_33_barras(:,Barra_De_1);
-        disp("Coluna_com_distancias");
-        disp(Coluna_com_distancias);
-        disp("Distancia");
-        disp(Distancia);
-
-
-        Barras_metade_do_caminho=find(Coluna_com_distancias==Distancia);
-
-        if(length(Barras_metade_do_caminho) >1)
-            Barra_metade_do_caminho =Barras_metade_do_caminho(randi([1, length(Barras_metade_do_caminho)]));
-        else
-            Barra_metade_do_caminho = Barras_metade_do_caminho;
-        end
-    
-
-        % Procurar o valor de Barra_metade_do_caminho na coluna 1 da matriz 'linhas'
-        linha_encontrada_mutual = find(linhas(:, 1) == Barra_metade_do_caminho, 1);
-
-
-        if ~isempty(linha_encontrada_mutual)
-            % Se encontrado na coluna 1
-            Mutual_Vector(1) = Barra_metade_do_caminho; % Colocar em posição 1
-            Mutual_Vector(2) = linhas(linha_encontrada_mutual, 2); % Valor da coluna 2 na posição 2
-        else
-            % Procurar o valor de Barra_metade_do_caminho na coluna 2
-            linha_encontrada_mutual = find(linhas(:, 2) == Barra_metade_do_caminho, 1);
-
-        if ~isempty(linha_encontrada_mutual)
-            % Se encontrado na coluna 2
-            Mutual_Vector(2) = Barra_metade_do_caminho; % Colocar em posição 2
-            Mutual_Vector(1) = linhas(linha_encontrada_mutual, 1); % Valor da coluna 1 na posição 1
-        end
+        if isempty(trecho_mutual_idx)
+            % Se não encontrou, mantém os trechos originais
+            trecho_mutual_idx = trecho_i_idx;
         end
         
-  
+        %%
+        trecho_mutual = linhas(trecho_mutual_idx, :);
+        % Atualiza o vetor mutual para as barras: utiliza o trecho encontrado
+        %vetor_mutual(1:2) = trecho_mutual(1:2);
+        vetor_mutual(1) = trecho_mutual(1);
+        vetor_mutual(2) = trecho_mutual(2);
+        %%
 
-       %X_Best - Mutual_Vector - Para a barra
-
-       X_Best = best_solution(1,:);
-
-       Distancia_XBest_Mutual = calcula_distancia(X_Best, Mutual_Vector,Matriz_dist1_33_barras, Matriz_dist2_33_barras);
-
-       if ~isscalar(Distancia_XBest_Mutual)
-           Distancia_XBest_Mutual = 1;
-       end
-
-       % (Xbest - Mutual_Vector)*BF1
-       Fator_1 = double(round(rand * Distancia_XBest_Mutual * BF1));
-
-       if(Fator_1==0)
-           Fator_1 = 1;
-       end
-
-       % (Xbest - Mutual_Vector)*BF1
-       Fator_2 = double(round(rand * Distancia_XBest_Mutual * BF2));      
-
-       if(Fator_2 == 0)
-           Fator_2 = 1;
-       end
-
-   
-     
-        % Encontra a barra com distancia Factor 1 de X_new_i e escolhe uma
-        % aleatoriamente
-        Coluna_com_distancias = Matriz_dist2_33_barras(:,X_new_i(1));
+        % --- Cálculo do fator de deslocamento com base na melhor solução ---
+        % Localiza o trecho da melhor solução
+        trecho_best_idx = find(linhas(:,1) == melhor_solucao(1) & linhas(:,2) == melhor_solucao(2), 1);
+        % Distância entre o trecho da melhor solução e o trecho mutual
+        distancia_best_mutual = Matriz_Distancias_De(trecho_best_idx, trecho_mutual_idx);
         
-        disp("Fator_1");
-        disp(Fator_1);
-        disp(isscalar(Fator_1));
-
-        Barras_com_distancia_de_Xi=find(Coluna_com_distancias==Fator_1);
-        disp("Barras com distancia de xi");
-        disp(Barras_com_distancia_de_Xi);
-
-          if isempty(Barras_com_distancia_de_Xi)
-            Barras_com_distancia_de_Xi = max(Coluna_com_distancias);
-          end
-
-          
-
-
-        if(length(Barras_com_distancia_de_Xi) >1)
-            Barra_com_distancia_de_Xi =Barras_com_distancia_de_Xi(randi([1, length(Barras_com_distancia_de_Xi)]));
-        else
-            Barra_com_distancia_de_Xi = Barras_com_distancia_de_Xi;
-        end
+        % Calcula os fatores de deslocamento (garantindo valor mínimo 1)
+        deslocamento1 = max(1, round(rand * distancia_best_mutual * BF1));
+        deslocamento2 = max(1, round(rand * distancia_best_mutual * BF2));
         
-        % Encontra a barra com distancia Factor 2 de X_new_j e escolhe uma
-        % aleatoriamente
-        Coluna_com_distancias = Matriz_dist2_33_barras(:,X_new_j(1));
-        
-        Barras_com_distancia_de_Xj=find(Coluna_com_distancias==Fator_2);
-
-        if isempty(Barras_com_distancia_de_Xj)
-            Barras_com_distancia_de_Xj = max(Coluna_com_distancias);
+        % Atualiza as barras dos organismos i e j com base em deslocamentos
+        % Para org_i:
+        novo_trecho_i_idx = escolheTrecho(Matriz_Distancias_De, trecho_i_idx, deslocamento1);
+        if isempty(novo_trecho_i_idx)
+            novo_trecho_i_idx = trecho_i_idx;
         end
-
-        if(length(Barras_com_distancia_de_Xj) >1)
-            Barra_com_distancia_de_Xj =Barras_com_distancia_de_Xj(randi([1, length(Barras_com_distancia_de_Xj)]));
-        else
-            Barra_com_distancia_de_Xj = Barras_com_distancia_de_Xj;
-        end
-
-       % Encontra a barra inicial ou final em linhas para definir um trecho
-       % que existe 
-
-        % Procurar o valor de Barra_com_distancia_de_Xi na coluna 1 da matriz 'linhas'
-        linha_encontrada_mutual = find(linhas(:, 1) == Barra_com_distancia_de_Xi, 1);
-
-        if ~isempty(linha_encontrada_mutual)
-            % Se encontrado na coluna 1
-            X_new_i(1) = Barra_com_distancia_de_Xi; % Colocar em posição 1
-            X_new_i(2) = linhas(linha_encontrada_mutual, 2); % Valor da coluna 2 na posição 2
-        else
-            % Procurar o valor de Barra_metade_do_caminho na coluna 2
-            linha_encontrada_mutual = find(linhas(:, 2) == Barra_com_distancia_de_Xi, 1);
-
-        if ~isempty(linha_encontrada_mutual)
-            % Se encontrado na coluna 2
-            X_new_i(2) = Barra_com_distancia_de_Xi; % Colocar em posição 2
-            X_new_i(1) = linhas(linha_encontrada_mutual, 1); % Valor da coluna 1 na posição 1
-        end
-        end
-
-       % Procurar o valor de Barra_com_distancia_de_Xj na coluna 1 da matriz 'linhas'
-        linha_encontrada_mutual = find(linhas(:, 1) == Barra_com_distancia_de_Xj, 1);
-
-        if ~isempty(linha_encontrada_mutual)
-            % Se encontrado na coluna 1
-            X_new_j(1) = Barra_com_distancia_de_Xj; % Colocar em posição 1
-            X_new_j(2) = linhas(linha_encontrada_mutual, 2); % Valor da coluna 2 na posição 2
-        else
-            % Procurar o valor de Barra_metade_do_caminho na coluna 2
-            linha_encontrada_mutual = find(linhas(:, 2) == Barra_com_distancia_de_Xj, 1);
-
-        if ~isempty(linha_encontrada_mutual)
-            % Se encontrado na coluna 2
-            X_new_j(2) = Barra_com_distancia_de_Xj; % Colocar em posição 2
-            X_new_j(1) = linhas(linha_encontrada_mutual, 1); % Valor da coluna 1 na posição 1
-        end
-        end
-
-
-        clear linha_encontrada_mutual;
-
-        % Impedância e Distancia
-
-        X_new_i(3) = X_new_i(3) + rand*(best_solution(1,3) - Mutual_Vector(3)) * BF1; 
-        if(X_new_i(3) < 0)
-            X_new_i(3) = 0;
-        end
-        if(X_new_i(3) > 100)
-            X_new_i(3) = 100;
-        end
-        
-        X_new_i(5) = X_new_i(5) + rand*(best_solution(1,5) - Mutual_Vector(5)) * BF1;
-         if(X_new_i(5) < 0)
-            X_new_i(5) = 0;
-        end
-        if(X_new_i(5) > 20)
-            X_new_i(5) = 20;
-        end
-
-
-        X_new_j(3) = X_new_j(3) + rand*(best_solution(1,3) - Mutual_Vector(3)) * BF2;
-        if(X_new_j(3) < 0)
-            X_new_j(3) = 0;
-        end
-        if(X_new_j(3) > 100)
-            X_new_j(3) = 100;
-        end
-
-
-        X_new_j(5) = X_new_j(5) + rand*(best_solution(1,5) - Mutual_Vector(5)) * BF2;
-        if(X_new_i(5) < 0)
-            X_new_i(5) = 0;
-        end
-        if(X_new_i(5) > 100)
-            X_new_i(5) = 20;
-        end
+        trecho_novo_i = linhas(novo_trecho_i_idx, :);
 
         
-        % Avaliação dos novos indivíduos
-        [Vtrif,VFT,VFFT,VFF] = CurtoCircuito(caso,X_new_i,pu);
-        Tens_Calc_i = preencheMedidores(Bar_Med,Tipo_curto,Vtrif,VFT,VFFT,VFF); 
-        fobj_new_i = avaliaFO(Tens_Med,Tens_Calc_i);
-        
-        [Vtrif,VFT,VFFT,VFF] = CurtoCircuito(caso,X_new_j,pu);
-        Tens_Calc_j = preencheMedidores(Bar_Med,Tipo_curto,Vtrif,VFT,VFFT,VFF); 
-        fobj_new_j = avaliaFO(Tens_Med,Tens_Calc_j);
-        
-        % Substituição condicional
-        if fobj_new_i < fobj_array(i)
-            Populacao_Ant(i, :) = X_new_i;
-            fobj_array(i) = fobj_new_i;
-        end
-        if fobj_new_j < fobj_array(j)
-            Populacao_Ant(j, :) = X_new_j;
-            fobj_array(j) = fobj_new_j;
-        end
-    
+        org_i(1) = trecho_novo_i(1);
+        org_i(2) = trecho_novo_i(2);
 
-    %------ Fase de Comensalismo
         
-        % Seleção de um indivíduo
-        j = randi([1, Num_Anticorpos]);
-        while j == i
-            j = randi([1, Num_Anticorpos]);
+        % Para org_j:
+        novo_trecho_j_idx = escolheTrecho(Matriz_Distancias_De, trecho_j_idx, deslocamento2);
+        if isempty(novo_trecho_j_idx)
+            novo_trecho_j_idx = trecho_j_idx;
+        end
+        trecho_novo_j = linhas(novo_trecho_j_idx, :);
+        org_j(1) = trecho_novo_j(1);
+        org_j(2) = trecho_novo_j(2);
+        
+        % Atualiza os demais parâmetros (Zdist e Zdefeito) com base no vetor mutual e na melhor solução
+        org_i(3) = org_i(3) + rand*(melhor_solucao(3) - vetor_mutual(3)) * BF1;
+        org_i(3) = clamp(org_i(3), 0, 100);
+        org_i(5) = org_i(5) + rand*(melhor_solucao(5) - vetor_mutual(5)) * BF1;
+        org_i(5) = clamp(org_i(5), 0, 20);
+        
+        org_j(3) = org_j(3) + rand*(melhor_solucao(3) - vetor_mutual(3)) * BF2;
+        org_j(3) = clamp(org_j(3), 0, 100);
+        org_j(5) = org_j(5) + rand*(melhor_solucao(5) - vetor_mutual(5)) * BF2;
+        org_j(5) = clamp(org_j(5), 0, 20);
+        
+        % Avalia os novos candidatos (mutualismo)
+        [V_trif, V_FT, V_FFT, V_FF] = CurtoCircuito(caso, org_i, pu);
+        tensores_calc_i = preencheMedidores(barras_medidor, org_i(4), V_trif, V_FT, V_FFT, V_FF);
+        fobj_i_new = avaliaFO(tensores_med_real, tensores_calc_i);
+        
+        [V_trif, V_FT, V_FFT, V_FF] = CurtoCircuito(caso, org_j, pu);
+        tensores_calc_j = preencheMedidores(barras_medidor, org_j(4), V_trif, V_FT, V_FFT, V_FF);
+        fobj_j_new = avaliaFO(tensores_med_real, tensores_calc_j);
+        
+        % Atualização condicional: só substitui se a nova solução for melhor
+        if fobj_i_new < fobj_array(i)
+            populacao(i, :) = org_i;
+            fobj_array(i) = fobj_i_new;
+        end
+        if fobj_j_new < fobj_array(j)
+            populacao(j, :) = org_j;
+            fobj_array(j) = fobj_j_new;
         end
         
-        % Atualização
-        X_new = Populacao_Ant(i, :);
-        X_new(3) = X_new(3) + (2* rand -1)*(best_solution(1,3) - Populacao_Ant(j, 3));
-        if(X_new_i(3) < 0)
-            X_new_i(3) = 0;
+        %% FASE DE COMENSALISMO
+        % Seleciona outro parceiro j (diferente do i)
+        j_comm = randi(num_anticorpos);
+        while j_comm == i
+            j_comm = randi(num_anticorpos);
         end
-        if(X_new_i(3) > 100)
-            X_new_i(3) = 100;
+        
+        org_comm = populacao(i, :);  % Cópia do organismo i para atualização
+        org_j_comm = populacao(j_comm, :);
+        
+        % Determina o trecho de org_comm e org_j_comm
+        trecho_comm_idx = find(linhas(:,1) == org_comm(1) & linhas(:,2) == org_comm(2), 1);
+        trecho_j_comm_idx = find(linhas(:,1) == org_j_comm(1) & linhas(:,2) == org_j_comm(2), 1);
+        
+        % Determina deslocamento com base na distância entre o melhor e o parceiro j_comm
+        trecho_best_idx = find(linhas(:,1) == melhor_solucao(1) & linhas(:,2) == melhor_solucao(2), 1);
+        distancia_best_j = Matriz_Distancias_De(trecho_best_idx, trecho_j_comm_idx);
+        deslocamento_comm = round(rand * distancia_best_j);
+        
+        % Atualiza a posição (barras) de org_comm usando o deslocamento encontrado
+        novo_trecho_comm_idx = escolheTrecho(Matriz_Distancias_De, trecho_comm_idx, deslocamento_comm);
+        if isempty(novo_trecho_comm_idx)
+            novo_trecho_comm_idx = trecho_comm_idx;
         end
-
-
-        X_new(5) = X_new(5) + (2* rand -1)*(best_solution(1,3) - Populacao_Ant(j, 5));
-        if(X_new_i(3) < 0)
-            X_new_i(3) = 0;
+        trecho_novo_comm = linhas(novo_trecho_comm_idx, :);
+        org_comm(1) = trecho_novo_comm(1);
+        org_comm(2) = trecho_novo_comm(2);
+        
+        % Atualiza os parâmetros (Zdist e Zdefeito) com variação simétrica
+        org_comm(3) = org_comm(3) + (2*rand - 1)*(melhor_solucao(3) - org_j_comm(3));
+        org_comm(3) = clamp(org_comm(3), 0, 100);
+        org_comm(5) = org_comm(5) + (2*rand - 1)*(melhor_solucao(5) - org_j_comm(5));
+        org_comm(5) = clamp(org_comm(5), 0, 20);
+        
+        % Avalia o novo organismo com comensalismo
+        [V_trif, V_FT, V_FFT, V_FF] = CurtoCircuito(caso, org_comm, pu);
+        tensores_calc_comm = preencheMedidores(barras_medidor, org_comm(4), V_trif, V_FT, V_FFT, V_FF);
+        fobj_comm_new = avaliaFO(tensores_med_real, tensores_calc_comm);
+        
+        % Atualiza se a nova solução for melhor
+        if fobj_comm_new < fobj_array(i)
+            populacao(i, :) = org_comm;
+            fobj_array(i) = fobj_comm_new;
         end
-        if(X_new_i(3) > 20)
-            X_new_i(3) = 20;
-        end 
         
-        % Avaliação do novo indivíduo
-        [Vtrif,VFT,VFFT,VFF] = CurtoCircuito(caso,X_new,pu);
-        Tens_Calc = preencheMedidores(Bar_Med,Tipo_curto,Vtrif,VFT,VFFT,VFF); 
-        fobj_new = avaliaFO(Tens_Med,Tens_Calc);
+        %% FASE DE PARASITISMO
+        % Cria um parasita a partir do organismo i com parâmetros aleatórios para Zdist e Zdefeito
+        parasita = populacao(i, :);
+        parasita(3) = rand * 100;
+        parasita(5) = rand * 20;
         
-        % Substituição condicional
-        if fobj_new < fobj_array(i)
-            Populacao_Ant(i, :) = X_new;
-            fobj_array(i) = fobj_new;
-        end
-    
-
-    %------ Fase de Parasitismo
-        % Geração de um parasita
-        Parasita = Populacao_Ant(i, :);
-
-        Parasita(3) = rand*100;
-        Parasita(5) = rand*20;
+        [V_trif, V_FT, V_FFT, V_FF] = CurtoCircuito(caso, parasita, pu);
+        tensores_calc_par = preencheMedidores(barras_medidor, parasita(4), V_trif, V_FT, V_FFT, V_FF);
+        fobj_parasita = avaliaFO(tensores_med_real, tensores_calc_par);
         
-        % Avaliação do parasita
-        [Vtrif,VFT,VFFT,VFF] = CurtoCircuito(caso,Parasita,pu);
-        Tens_Calc = preencheMedidores(Bar_Med,Tipo_curto,Vtrif,VFT,VFFT,VFF); 
-        fobj_parasita = avaliaFO(Tens_Med,Tens_Calc);
-        
-        % Substituição condicional
+        % Se o parasita apresentar melhor desempenho, substitui o organismo i
         if fobj_parasita < fobj_array(i)
-            Populacao_Ant(i, :) = Parasita;
+            populacao(i, :) = parasita;
             fobj_array(i) = fobj_parasita;
         end
-    
-    end
-
+        
+    end % fim do loop para cada organismo
 end
 
-
-% Exibir as 5 melhores soluções após os ciclos
+%% Exibição dos resultados
+% Ordena a população com base na função objetivo (valor menor é melhor)
 [sorted_fobj, sorted_indices] = sort(fobj_array);
-Populacao_Ordenada = Populacao_Ant(sorted_indices, :);
-disp('As 5 configurações de curtos mais próximas do curto original:');
+populacao_ordenada = populacao(sorted_indices, :);
+
+disp('O curto original foi:');
 disp('BarDe   BarPara   Zdistancia   Tipo_curto   Zdefeito');
-disp(Populacao_Ordenada(1:5, :));
+disp(curto_real);
+
+disp('As 5 configurações de curtos mais próximas do curto original:');
+disp('BarDe   BarPara   Zdistancia   Tipo_curto   Zdefeito   Funcao_Objetivo');
+resultados = [populacao_ordenada(1:5, :), sorted_fobj(1:5)];
+disp(resultados);
+
+%% Refinamento da População (antes das funções auxiliares)
+% Seleciona os melhores anticorpos da população ordenada, considerando a função
+% objetivo arredondada até a segunda casa decimal
+uniqueVals = [];
+melhores_anticorpos = [];  % Lista dos candidatos únicos (por FO arredondada a 2 decimais)
+rounded_fobj = round(sorted_fobj, 2);
+for i = 1:length(rounded_fobj)
+    if ~ismember(rounded_fobj(i), uniqueVals)
+        uniqueVals(end+1) = rounded_fobj(i);
+        melhores_anticorpos = [melhores_anticorpos; populacao_ordenada(i, :)];
+    end
+end
+
+% Cria a população refinada: para cada um dos melhores anticorpos, gera 10
+% novos candidatos com pequenas variações nos parâmetros Zdist (3ª coluna)
+% e Zdefeito (5ª coluna), variando aleatoriamente entre -10% e +10% do valor original.
+populacao_refinada = [];
+for i = 1:size(melhores_anticorpos, 1)
+    base = melhores_anticorpos(i, :);
+    for j = 1:10
+        novo = base;  % Cópia da solução base
+        
+        % Variação na distância (3ª coluna)
+        % Calcula variação aleatória entre -10% e +10% do valor original
+        variacao_dist = 0.1 * base(3) * (2*rand - 1);
+        novo(3) = clamp(base(3) + variacao_dist, 0, 100);
+        
+        % Variação na impedância de defeito (5ª coluna)
+        variacao_def = 0.1 * base(5) * (2*rand - 1);
+        novo(5) = clamp(base(5) + variacao_def, 0, 20);
+        
+        % Adiciona o novo candidato à população refinada
+        populacao_refinada = [populacao_refinada; novo];
+    end
+end
+
+% Avalia a função objetivo para cada elemento da população refinada
+num_refinada = size(populacao_refinada, 1);
+fobj_refinada = zeros(num_refinada, 1);
+for k = 1:num_refinada
+    candidato = populacao_refinada(k, :);
+    [V_trif, V_FT, V_FFT, V_FF] = CurtoCircuito(caso, candidato, pu);
+    tensores_calc = preencheMedidores(barras_medidor, candidato(4), V_trif, V_FT, V_FFT, V_FF);
+    fobj_refinada(k) = avaliaFO(tensores_med_real, tensores_calc);
+end
+
+% Ordena a população refinada com base na função objetivo (menor é melhor)
+[sorted_fobj_ref, idx_ref] = sort(fobj_refinada);
+populacao_refinada_ordenada = populacao_refinada(idx_ref, :);
+
+% Identifica o elemento da população refinada que melhor se assemelha ao curto original
+melhor_refinado = populacao_refinada_ordenada(1, :);
+
+% Exibe os resultados do refinamento
+disp(' ');
+disp('Resultados da População Refinada:');
+disp('População Refinada Ordenada [BarDe, BarPara, Zdist, Tipo_curto, Zdefeito, Fobj]:');
+resultados_refinados = [populacao_refinada_ordenada, sorted_fobj_ref];
+disp(resultados_refinados);
+
+disp('O melhor candidato refinado que se assemelha ao curto original é:');
+disp('BarDe   BarPara   Zdist   Tipo_curto   Zdefeito');
+disp(melhor_refinado);
+
+
+%% ========== Funções Auxiliares ==========
+
+% Função para selecionar um trecho aleatório com base na distância desejada
+function trecho_escolhido = escolheTrecho(distMat, trecho_ref_idx, distancia_desejada)
+    % Procura os índices em que a coluna 'trecho_ref_idx' da matriz de
+    % distâncias é igual à 'distancia_desejada'
+    indices = find(distMat(:, trecho_ref_idx) == distancia_desejada);
+    if ~isempty(indices)
+        % Seleciona um índice aleatoriamente entre as opções disponíveis
+        trecho_escolhido = indices(randi(length(indices)));
+    else
+        trecho_escolhido = [];
+    end
+end
+
+% Função para limitar (clamp) um valor entre um mínimo e máximo
+function valor_clamped = clamp(valor, valor_min, valor_max)
+    valor_clamped = max(valor_min, min(valor, valor_max));
+end
